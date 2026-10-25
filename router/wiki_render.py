@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
 from template_env import templates
@@ -19,22 +19,18 @@ def wiki_page(request: Request, page: Path):
     else:
         md_path = md_path.with_suffix(".md")
 
+    status_code = 200
+
     if not md_path.resolve().is_relative_to(WIKI_DIR.resolve()):
-        return Response(
-            content="Invalid path",
-            status_code=403,
-            media_type="text/html",
-        )
+        md_path = WIKI_DIR / "_tech/error/403.md"
+        status_code = 403
 
     try:
         content = md_path.read_text(encoding="utf-8")
 
     except FileNotFoundError:
-        return Response(
-            content="Page not found",
-            status_code=404,
-            media_type="text/html",
-        )
+        content = (WIKI_DIR / "_tech/error/404.md").read_text(encoding="utf-8")
+        status_code = 404
 
     rendered_html, title, date, author, background_url, ai_text, ai_art = get_wiki_page(
         md_path, content
@@ -52,4 +48,5 @@ def wiki_page(request: Request, page: Path):
             "ai_text": ai_text,
             "ai_art": ai_art,
         },
+        status_code,
     )
