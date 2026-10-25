@@ -1,7 +1,7 @@
 import contextlib
 
 from fastapi import FastAPI
-from fastapi.responses import RedirectResponse
+from fastapi.responses import PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from router.utils.search_index import build_index, is_index_stale
@@ -24,6 +24,12 @@ app = FastAPI(
     redoc_url=None,
     openapi_url=None,
 )
+
+
+@app.get("/ping")
+async def pong():
+    return PlainTextResponse("ok", 200)
+
 
 for router in [
     wiki_index_router,
