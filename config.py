@@ -1,6 +1,6 @@
 class Constants:
     _data: dict[str, str] = {
-        "site_name": "S.P.F. Base",
+        "site_name": "S.P.F. Project",
     }
 
     @classmethod
