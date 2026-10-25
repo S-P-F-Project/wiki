@@ -5,6 +5,7 @@ from fastapi.responses import PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from router.utils.search_index import build_index, is_index_stale
+from router.wiki_editor import router as wiki_editor_router
 from router.wiki_index import router as wiki_index_router
 from router.wiki_render import router as wiki_render_router
 from template_env import LOCAL_RUN, LOCAL_RUN_LEV
@@ -32,10 +33,6 @@ async def pong():
 
 
 if LOCAL_RUN:
-    from router.wiki_editor import router as wiki_editor_router
-
-    app.include_router(wiki_editor_router)
-
     app.mount(
         "/wiki/static" if LOCAL_RUN_LEV else "/static",
         StaticFiles(directory="static"),
@@ -43,10 +40,11 @@ if LOCAL_RUN:
     )
 
     if not LOCAL_RUN_LEV:
+        app.include_router(wiki_editor_router)
 
         @app.get("/")
         async def redirect_to_wiki():
-            return RedirectResponse(url="/wiki/")
+            return RedirectResponse(url="/editor")
 
 
 for router in [
