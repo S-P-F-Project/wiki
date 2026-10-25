@@ -1,6 +1,6 @@
 Title: Scarlet Dawn (Алый рассвет)
 Author: Cain
-Date: 19 Октября 2026 г.
+Date: 25 Октября 2026 г.
 Background: images/wallpaper.jpeg
 ButtonImage: images/organisations/SD/logo_small.webp
 ButtonDesc: Частная научно-иследовательская организация
