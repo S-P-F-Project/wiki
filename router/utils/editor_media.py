@@ -13,16 +13,22 @@ MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 
 
 def smaller_webp(data: bytes) -> tuple[bytes, str]:
-    """Convert only when smaller and pixel-identical; preserve ICC and EXIF.
+    """Convert images to lossy WebP when smaller, preserving metadata.
 
-    Animated images stay in their original format. Stored images are not resized.
+    Animated images and existing WebP files remain unchanged.
+    Images are not resized.
     """
     with Image.open(io.BytesIO(data)) as image:
-        suffix = {"JPEG": ".jpg", "PNG": ".png", "GIF": ".gif", "WEBP": ".webp"}.get(
-            image.format or ""
-        )
+        suffix = {
+            "JPEG": ".jpg",
+            "PNG": ".png",
+            "GIF": ".gif",
+            "WEBP": ".webp",
+        }.get(image.format or "")
+
         if suffix is None:
-            raise ValueError("Поддерживаются PNG, JPEG, GIF и WebP")
+            raise ValueError("Unsupported image format")
+
         if (
             getattr(image, "is_animated", False)
             or image.format == "WEBP"
@@ -30,29 +36,30 @@ def smaller_webp(data: bytes) -> tuple[bytes, str]:
             or max(image.size) > 16383
         ):
             return data, suffix
+
         image.load()
-        rgba = image.convert("RGBA")
-        output = io.BytesIO()
-        options = {"lossless": True, "exact": True, "quality": 75, "method": 4}
-        if image.format == "JPEG":
-            # In lossless mode quality controls effort, never pixel fidelity.
-            # JPEG photos usually grow, so try the fast encoder first.
-            options.update(quality=0, method=0)
+
+        has_alpha = "A" in image.getbands() or "transparency" in image.info
+        converted = image.convert("RGBA" if has_alpha else "RGB")
+
+        options = {"lossless": False, "quality": 85, "method": 6}
         for key in ("icc_profile", "exif", "xmp"):
             if image.info.get(key):
                 options[key] = image.info[key]
-        rgba.save(output, "WEBP", **options)
+
+        output = io.BytesIO()
+        converted.save(output, "WEBP", **options)
+
         encoded = output.getvalue()
+
         if len(encoded) >= len(data):
             return data, suffix
-        with Image.open(io.BytesIO(encoded)) as decoded:
-            if decoded.convert("RGBA").tobytes() != rgba.tobytes():
-                return data, suffix
+
         return encoded, ".webp"
 
 
 def image_folder(static_dir: Path, folder: str) -> Path:
-    relative = Path(folder)
+    relative = Path(folder).resolve()
     if (
         relative.is_absolute()
         or ".." in relative.parts
@@ -61,11 +68,14 @@ def image_folder(static_dir: Path, folder: str) -> Path:
         raise ValueError(
             "Укажи папку относительно images, например organisations/SierraBiotech"
         )
-    target = (static_dir / "images" / relative).resolve()
-    if not target.is_relative_to(
-        (static_dir / "images").resolve()
-    ) or not target.is_relative_to(static_dir.resolve()):
+
+    img_dir = (static_dir / "images").resolve()
+    target = img_dir / relative
+    if not target.is_relative_to(img_dir) or not target.is_relative_to(
+        static_dir.resolve()
+    ):
         raise ValueError("Папка должна находиться внутри static/images")
+
     return target
 
 
@@ -73,12 +83,14 @@ def list_media(static_dir: Path, folder: str) -> dict:
     directory = image_folder(static_dir, folder)
     if not directory.is_dir():
         raise ValueError("Папка изображений не найдена")
+
     folders, images = [], []
     for path in sorted(directory.iterdir()):
         if not path.resolve().is_relative_to(
             static_dir.resolve()
         ) or path.name.startswith("."):
             continue
+
         if path.is_dir():
             folders.append(
                 {
@@ -86,6 +98,7 @@ def list_media(static_dir: Path, folder: str) -> dict:
                     "path": path.relative_to(static_dir / "images").as_posix(),
                 }
             )
+
         elif path.is_file() and path.suffix.lower() in IMAGE_SUFFIXES:
             stat = path.stat()
             images.append(
@@ -96,18 +109,25 @@ def list_media(static_dir: Path, folder: str) -> dict:
                     "version": str(stat.st_mtime_ns),
                 }
             )
+
     return {"folder": folder, "folders": folders, "images": images}
 
 
 def store_upload(
-    static_dir: Path, filename: str, data: bytes, folder: str = "uploads"
+    static_dir: Path,
+    filename: str,
+    data: bytes,
+    folder: str = "uploads",
 ) -> dict:
     if not data or len(data) > MAX_UPLOAD_BYTES:
         raise ValueError("Размер изображения должен быть от 1 байта до 50 МБ")
+
     try:
         encoded, suffix = smaller_webp(data)
+
     except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as error:
         raise ValueError("Не удалось прочитать изображение") from error
+
     stem = (
         re.sub(r"[^\w-]+", "-", Path(filename).stem, flags=re.UNICODE).strip("-")[:60]
         or "image"
@@ -116,18 +136,22 @@ def store_upload(
     directory = image_folder(static_dir, folder)
     if not directory.resolve().is_relative_to(static_dir.resolve()):
         raise ValueError("Папка загрузки должна находиться внутри static")
+
     directory.mkdir(parents=True, exist_ok=True)
     target = directory / (stem + "-" + digest + suffix)
     for existing in directory.glob("*-" + digest + suffix):
         if not existing.is_symlink() and existing.read_bytes() == encoded:
             target = existing
             break
+
     try:
         with target.open("xb") as stream:
             stream.write(encoded)
+
     except FileExistsError:
         if target.is_symlink() or target.read_bytes() != encoded:
             raise ValueError("Имя изображения уже занято") from None
+
     return {
         "path": target.relative_to(static_dir).as_posix(),
         "bytes": len(encoded),
@@ -139,6 +163,7 @@ def thumbnail(path: Path) -> bytes:
     with Image.open(path) as image:
         if image.format == "JPEG":
             image.draft("RGB", (240, 160))
+
         # The gallery thumbnail is separate from the untouched full-size asset.
         from PIL import ImageOps
 
